@@ -99,7 +99,7 @@ def check_response(response: dict) -> list:
             'Отсутствует ключ homeworks',
         )
     elif not isinstance(response['homeworks'], list):
-        raise PracticumException(
+        raise TypeError(
             'Неверный тип данных элемента homeworks',
         )
     logger.debug(
@@ -146,7 +146,7 @@ def main() -> None:
         exit()
 
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    timestamp = 0
+    timestamp = int(time.time())
     error_message = ''
 
     while True:
@@ -157,10 +157,7 @@ def main() -> None:
                 'Список домашних работ получен',
             )
             if len(homework) > 0:
-                current_homework = homework[0]
-                lesson_name = current_homework['lesson_name']
-                homework_status = parse_status(current_homework)
-                send_message(bot, f'{lesson_name}: {homework_status}')
+                send_message(bot, parse_status(homework[0]))
             else:
                 logger.debug(
                     'Новые статусы отсутствуют',
