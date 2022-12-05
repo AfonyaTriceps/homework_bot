@@ -3,6 +3,7 @@ import os
 import sys
 import time
 from http import HTTPStatus
+from pathlib import Path
 from typing import Dict, List, Union
 
 import requests
@@ -14,7 +15,7 @@ from exception import PracticumException
 
 logging.basicConfig(
     level=logging.INFO,
-    filename='program.log',
+    filename=f'{Path(__file__)}.log',
     filemode='w',
     format='%(asctime)s - %(levelname)s - %(message)s - %(funcName)s',
 )
@@ -28,7 +29,7 @@ PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
-RETRY_PERIOD = 600  # 60 sec * 10
+RETRY_PERIOD = 600  # 60 сек * 10 мин
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
 
@@ -40,19 +41,39 @@ HOMEWORK_VERDICTS = {
 }
 
 
+def func_logger(func):
+    """Логирует запуск функции с параметрами.
+
+    Args:
+        func: Функция с параметрами.
+
+    Returns:
+        def(inner): Результат выполнения функции с логом.
+    """
+    def inner(*args, **kwargs):
+        returns = func(*args, **kwargs)
+        logger.info(
+            f'Вызов функции {func.__name__} с параметрами '
+            f'{args, kwargs} возвращает {returns}',
+        )
+        return returns
+
+    return inner
+
+
 def check_tokens() -> None:
     """Проверяет доступность переменных окружения.
 
     Raises:
         KeyError: Если отсутствует переменная окружения.
     """
-    tokens = ['PRACTICUM_TOKEN', 'TELEGRAM_TOKEN', 'TELEGRAM_CHAT_ID']
-    for token in tokens:
-        if globals()[token] is None:
+    for token in ('PRACTICUM_TOKEN', 'TELEGRAM_TOKEN', 'TELEGRAM_CHAT_ID'):
+        if globals().get(token) is None:
             logger.critical(f'Отсутствует обязательная переменная {token}')
             raise KeyError(f'Отсутствует переменная окружения {token}')
 
 
+@func_logger
 def send_message(bot, message: str) -> None:
     """Отправляет сообщение в Telegram чат.
 
@@ -62,15 +83,16 @@ def send_message(bot, message: str) -> None:
     """
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
-        logger.debug(
-            f'Сообщение в Telegram отправлено: {message}',
-        )
     except telegram.TelegramError as telegram_error:
         logger.error(
             f'Сообщение в Telegram не отправлено: {telegram_error}',
         )
+    logger.debug(
+        f'Сообщение в Telegram отправлено: {message}',
+    )
 
 
+@func_logger
 def get_api_answer(timestamp: int) -> Dict[str, Union[List, int]]:
     """Делает запрос к эндпоинту API-сервиса.
 
@@ -100,17 +122,11 @@ def get_api_answer(timestamp: int) -> Dict[str, Union[List, int]]:
         raise PracticumException(
             f'Ошибка {response.status_code}',
         )
-
-    try:
-        response_json = response.json()
-    except ValueError:
-        raise PracticumException(
-            'Ошибка перевода json',
-        )
     logger.info('Получен ответ от сервера')
-    return response_json
+    return response.json()
 
 
+@func_logger
 def check_response(
     response: Dict[str, Union[List, int]],
 ) -> List[Dict[str, Union[str, int]]]:
@@ -120,7 +136,8 @@ def check_response(
         response (dict): Ответ API в формате json.
 
     Returns:
-        list: Список, содержащий информацию о домашних работах.
+        List[Dict[str, Union[str, int]]]: Список,
+            содержащий информацию о домашних работах.
 
     Raises:
         KeyError: Если отсутствует ключ homeworks,
@@ -137,7 +154,7 @@ def check_response(
         raise KeyError(
             'Отсутствует ключ homeworks',
         )
-    elif not isinstance(response['homeworks'], list):
+    elif not isinstance(response.get('homeworks'), list):
         raise TypeError(
             'Неверный тип данных элемента homeworks',
         )
@@ -147,6 +164,7 @@ def check_response(
     return response.get('homeworks')
 
 
+@func_logger
 def parse_status(homework: Dict[str, Union[str, int]]) -> str:
     """Извлекает статус домашней работы.
 
@@ -171,16 +189,14 @@ def parse_status(homework: Dict[str, Union[str, int]]) -> str:
         )
 
     try:
-        verdict = HOMEWORK_VERDICTS[status]
+        return (
+            f'Изменился статус проверки работы "{name}". '
+            f'{HOMEWORK_VERDICTS[status]}'
+        )
     except KeyError:
         raise PracticumException(
             f'Неизвестный статус работы: {status}',
         )
-
-    logger.debug(
-        'Информация о статусе ДЗ извлечена',
-    )
-    return f'Изменился статус проверки работы "{name}". {verdict}'
 
 
 def main() -> None:
@@ -189,7 +205,7 @@ def main() -> None:
 
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     timestamp = int(time.time())
-    error_message = ''
+    error_message = None
 
     while True:
         try:
@@ -212,7 +228,8 @@ def main() -> None:
                 send_message(bot, message)
                 error_message = error
             logger.error(message)
-        time.sleep(RETRY_PERIOD)
+        finally:
+            time.sleep(RETRY_PERIOD)
 
 
 if __name__ == '__main__':
