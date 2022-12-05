@@ -3,6 +3,7 @@ import os
 import sys
 import time
 from http import HTTPStatus
+from typing import Dict, List, Union
 
 import requests
 import telegram
@@ -13,7 +14,9 @@ from exception import PracticumException
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s - %(name)s',
+    filename='program.log',
+    filemode='w',
+    format='%(asctime)s - %(levelname)s - %(message)s - %(funcName)s',
 )
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.StreamHandler(stream=sys.stdout))
@@ -25,7 +28,7 @@ PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
-RETRY_PERIOD = 600
+RETRY_PERIOD = 600  # 60 sec * 10
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
 
@@ -37,14 +40,26 @@ HOMEWORK_VERDICTS = {
 }
 
 
-def check_tokens() -> bool:
-    """Проверяет доступность переменных окружения."""
-    if all([PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID]):
-        return True
+def check_tokens() -> None:
+    """Проверяет доступность переменных окружения.
+
+    Raises:
+        KeyError: Если отсутствует переменная окружения.
+    """
+    tokens = ['PRACTICUM_TOKEN', 'TELEGRAM_TOKEN', 'TELEGRAM_CHAT_ID']
+    for token in tokens:
+        if globals()[token] is None:
+            logger.critical(f'Отсутствует обязательная переменная {token}')
+            raise KeyError(f'Отсутствует переменная окружения {token}')
 
 
 def send_message(bot, message: str) -> None:
-    """Отправляет сообщение в Telegram чат."""
+    """Отправляет сообщение в Telegram чат.
+
+    Args:
+        bot: Бот-аккаунт
+        message (str): Сообщение для отправки.
+    """
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
         logger.debug(
@@ -56,15 +71,26 @@ def send_message(bot, message: str) -> None:
         )
 
 
-def get_api_answer(timestamp: int) -> dict:
-    """Делает запрос к эндпоинту API-сервиса."""
+def get_api_answer(timestamp: int) -> Dict[str, Union[List, int]]:
+    """Делает запрос к эндпоинту API-сервиса.
+
+    Args:
+        timestamp (int): Период, от которого работы попадают в список.
+
+    Returns:
+        response_json (dict): ответ API в формате json.
+
+    Raises:
+        PracticumException: Если присутствует ошибка при запросе к API.
+    """
     logger.info('Получение ответа от сервера')
-    params = {'from_date': timestamp}
     try:
         response = requests.get(
             ENDPOINT,
             headers=HEADERS,
-            params=params,
+            params={
+                'from_date': timestamp,
+            },
         )
     except RequestException as error:
         raise PracticumException(
@@ -85,8 +111,21 @@ def get_api_answer(timestamp: int) -> dict:
     return response_json
 
 
-def check_response(response: dict) -> list:
-    """Проверяет ответ API на корректность."""
+def check_response(
+    response: Dict[str, Union[List, int]],
+) -> List[Dict[str, Union[str, int]]]:
+    """Проверяет ответ API на корректность.
+
+    Args:
+        response (dict): Ответ API в формате json.
+
+    Returns:
+        list: Список, содержащий информацию о домашних работах.
+
+    Raises:
+        KeyError: Если отсутствует ключ homeworks,
+        TypeError: Если неверный тип данных у элемента.
+    """
     logger.info(
         'Проверка ответа API соответствие документации',
     )
@@ -108,42 +147,45 @@ def check_response(response: dict) -> list:
     return response.get('homeworks')
 
 
-def parse_status(homework: dict) -> str:
-    """Извлекает статус домашней работы."""
+def parse_status(homework: Dict[str, Union[str, int]]) -> str:
+    """Извлекает статус домашней работы.
+
+    Args:
+        homework (dict): Словарь, содержащий информацию о домашней работе.
+
+    Returns:
+        str: Строка, содержащая наименование и статус домашней работы.
+
+    Raises:
+        PracticumException: Если отсутствует ключ в ответе API или
+            найден неизвестный статус работы.
+    """
     logger.info(
         'Извлекаем информацию о статусе ДЗ',
     )
-    if 'homework_name' not in homework:
-        raise KeyError(
-            'Отсутствует ключ homework_name в ответе API',
-        )
-    elif 'status' not in homework:
+    try:
+        name, status = homework['homework_name'], homework['status']
+    except KeyError:
         raise PracticumException(
-            'Отсутствует ключ status в ответе API',
+            'Отсутствует ключ в ответе API',
         )
 
-    homework_name = homework['homework_name']
-    homework_status = homework['status']
-
-    if homework_status not in HOMEWORK_VERDICTS:
+    try:
+        verdict = HOMEWORK_VERDICTS[status]
+    except KeyError:
         raise PracticumException(
-            f'Неизвестный статус работы: {homework_status}',
+            f'Неизвестный статус работы: {status}',
         )
 
-    verdict = HOMEWORK_VERDICTS[homework_status]
     logger.debug(
         'Информация о статусе ДЗ извлечена',
     )
-    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+    return f'Изменился статус проверки работы "{name}". {verdict}'
 
 
 def main() -> None:
     """Основная логика работы бота."""
-    if not check_tokens():
-        logger.critical(
-            'Отсутствует переменная(-ные) окружения',
-        )
-        exit()
+    check_tokens()
 
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     timestamp = int(time.time())
@@ -156,7 +198,7 @@ def main() -> None:
             logger.info(
                 'Список домашних работ получен',
             )
-            if len(homework) > 0:
+            if homework:
                 send_message(bot, parse_status(homework[0]))
             else:
                 logger.debug(
