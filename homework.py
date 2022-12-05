@@ -41,26 +41,6 @@ HOMEWORK_VERDICTS = {
 }
 
 
-def func_logger(func):
-    """Логирует запуск функции с параметрами.
-
-    Args:
-        func: Функция с параметрами.
-
-    Returns:
-        def(inner): Результат выполнения функции с логом.
-    """
-    def inner(*args, **kwargs):
-        returns = func(*args, **kwargs)
-        logger.info(
-            f'Вызов функции {func.__name__} с параметрами '
-            f'{args, kwargs} возвращает {returns}',
-        )
-        return returns
-
-    return inner
-
-
 def check_tokens() -> None:
     """Проверяет доступность переменных окружения.
 
@@ -73,7 +53,6 @@ def check_tokens() -> None:
             raise KeyError(f'Отсутствует переменная окружения {token}')
 
 
-@func_logger
 def send_message(bot, message: str) -> None:
     """Отправляет сообщение в Telegram чат.
 
@@ -92,7 +71,6 @@ def send_message(bot, message: str) -> None:
     )
 
 
-@func_logger
 def get_api_answer(timestamp: int) -> Dict[str, Union[List, int]]:
     """Делает запрос к эндпоинту API-сервиса.
 
@@ -126,7 +104,6 @@ def get_api_answer(timestamp: int) -> Dict[str, Union[List, int]]:
     return response.json()
 
 
-@func_logger
 def check_response(
     response: Dict[str, Union[List, int]],
 ) -> List[Dict[str, Union[str, int]]]:
@@ -164,7 +141,6 @@ def check_response(
     return response.get('homeworks')
 
 
-@func_logger
 def parse_status(homework: Dict[str, Union[str, int]]) -> str:
     """Извлекает статус домашней работы.
 
