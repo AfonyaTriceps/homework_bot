@@ -14,8 +14,8 @@ from requests.exceptions import RequestException
 from exception import PracticumException
 
 logging.basicConfig(
-    level=logging.INFO,
-    filename=f'{Path(__file__)}.log',
+    level=logging.DEBUG,
+    filename=f'{Path(__file__).stem}.log',
     filemode='w',
     format='%(asctime)s - %(levelname)s - %(message)s - %(funcName)s',
 )
@@ -57,28 +57,31 @@ def send_message(bot, message: str) -> None:
     """Отправляет сообщение в Telegram чат.
 
     Args:
-        bot: Бот-аккаунт
-        message (str): Сообщение для отправки.
+        bot: Бот-аккаунт.
+        message: Сообщение для отправки.
     """
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
     except telegram.TelegramError as telegram_error:
-        logger.error(
+        logger.exception(
             f'Сообщение в Telegram не отправлено: {telegram_error}',
         )
-    logger.debug(
-        f'Сообщение в Telegram отправлено: {message}',
-    )
+    else:
+        logger.debug(
+            f'Сообщение в Telegram отправлено: {message}',
+        )
 
 
-def get_api_answer(timestamp: int) -> Dict[str, Union[List, int]]:
+def get_api_answer(
+    timestamp: int,
+) -> Dict[str, Union[List[Dict[str, Union[int, str]]]]]:
     """Делает запрос к эндпоинту API-сервиса.
 
     Args:
-        timestamp (int): Период, от которого работы попадают в список.
+        timestamp: Период, от которого работы попадают в список.
 
     Returns:
-        response_json (dict): ответ API в формате json.
+        response_json: ответ API в формате json.
 
     Raises:
         PracticumException: Если присутствует ошибка при запросе к API.
@@ -105,7 +108,7 @@ def get_api_answer(timestamp: int) -> Dict[str, Union[List, int]]:
 
 
 def check_response(
-    response: Dict[str, Union[List, int]],
+    response: Dict[str, Union[List[Dict[str, Union[int, str]]]]],
 ) -> List[Dict[str, Union[str, int]]]:
     """Проверяет ответ API на корректность.
 
@@ -197,14 +200,15 @@ def main() -> None:
                     'Новые статусы отсутствуют',
                 )
             timestamp = response.get('current_date')
-            error_message = ''
+            error_message = None
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
-            if str(error) != str(error_message):
+            if str(error) != error_message:
                 send_message(bot, message)
                 error_message = error
             logger.error(message)
         finally:
+            logger.debug('Бот ожидает')
             time.sleep(RETRY_PERIOD)
 
 
